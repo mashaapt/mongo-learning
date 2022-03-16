@@ -14,7 +14,7 @@ function circulationRepo() {
 
                 let items = db.collection('newspapers').find(query);
 
-                if(limit > 0) {
+                if (limit > 0) {
                     items = items.limit(limit);
                 }
 
@@ -34,7 +34,7 @@ function circulationRepo() {
             try {
                 await client.connect();
                 const db = client.db(dbName);
-                const item = await db.collection('newspapers').findOne({_id: ObjectId(id)});
+                const item = await db.collection('newspapers').findOne({ _id: ObjectId(id) });
                 resolve(item);
                 client.close();
             } catch (error) {
@@ -50,12 +50,12 @@ function circulationRepo() {
                 await client.connect();
                 const db = client.db(dbName);
                 const insertResult = await db.collection('newspapers').insertOne(item);
-                
+
                 resolve(item);
-                
+
                 client.close();
             } catch (error) {
-                reject (error);
+                reject(error);
             }
         })
     }
@@ -67,7 +67,7 @@ function circulationRepo() {
                 await client.connect();
                 const db = client.db(dbName);
                 const updatedItem = await db.collection('newspapers')
-                    .findOneAndReplace({_id: id}, newItem, {returnDocument: 'after'});
+                    .findOneAndReplace({ _id: id }, newItem, { returnDocument: 'after' });
 
                 resolve(updatedItem.value);
                 client.close();
@@ -83,8 +83,8 @@ function circulationRepo() {
             try {
                 await client.connect();
                 const db = client.db(dbName);
-                const removed = await db.collection('newspapers').deleteOne({_id: id});
-                
+                const removed = await db.collection('newspapers').deleteOne({ _id: id });
+
                 resolve(removed.deletedCount === 1);
                 client.close();
             } catch (error) {
@@ -93,6 +93,7 @@ function circulationRepo() {
         });
 
     }
+
     function loadData(data) {
         return new Promise(async (resolve, reject) => {
             const client = new MongoClient(url);
@@ -104,14 +105,77 @@ function circulationRepo() {
                 results = await newspaperCollection.insertMany(data);
                 resolve(results);
                 client.close();
-                
+
             } catch (error) {
                 reject(error);
             }
         })
     }
 
-    return { loadData, get, getById, add, update, remove };
+    function averageFinalists() {
+        return new Promise(async (resolve, reject) => {
+            const client = new MongoClient(url);
+            try {
+                await client.connect();
+                const db = client.db(dbName);
+                const average = await db.collection('newspapers')
+                    .aggregate([{
+                        $group:
+                        {
+                            _id: null,
+                            avgFinalists: { $avg: "$Pulitzer Prize Winners and Finalists, 1990-2014" }
+                        }
+                    }]).toArray();
+                resolve(average[0].avgFinalists);
+                client.close();
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    function averageFinalistsByChange() {
+        return new Promise(async (resolve, reject) => {
+            const client = new MongoClient(url);
+            try {
+                await client.connect();
+                const db = client.db(dbName);
+                const average = await db.collection('newspapers')
+                    .aggregate([
+                        {
+                            $project: {
+                                "Newspaper": 1,
+                                "Pulitzer Prize Winners and Finalists, 1990-2014": 1,
+                                "Change in Daily Circulation, 2004-2013": 1,
+                                overallChange: {
+                                    $cond: {
+                                        if: { 
+                                            $gte: ["$Change in Daily Circulation, 2004-2013", 0] 
+                                        },
+                                        then: "positive", 
+                                        else: "negative"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            $group:
+                            {
+                                _id: "$overallChange",
+                                avgFinalists: { $avg: "$Pulitzer Prize Winners and Finalists, 1990-2014" }
+                            }
+
+                        }
+                    ]).toArray();
+                resolve(average);
+                client.close();
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+    
+    return { loadData, get, getById, add, update, remove, averageFinalists, averageFinalistsByChange };
 }
 
 module.exports = circulationRepo();
